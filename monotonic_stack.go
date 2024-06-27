@@ -8,13 +8,13 @@ type stack struct {
 	idx [][2]int
 }
 
-func newStack() *stack {
+func NewStack() *stack {
 	return &stack{
 		idx: make([][2]int, 0, 10),
 	}
 }
 
-func (st *stack) add(idx int) {
+func (st *stack) Add(idx int) {
 	/*
 		we have to store the beginning of the range + the last
 	*/
@@ -40,7 +40,7 @@ func (st *stack) add(idx int) {
 	})
 }
 
-func (st *stack) indices() [][2]int {
+func (st *stack) Indices() [][2]int {
 	return st.idx
 }
 

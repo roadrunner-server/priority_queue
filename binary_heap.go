@@ -34,7 +34,7 @@ func NewBinHeap[T Item](maxLen uint64) *BinHeap[T] {
 	return &BinHeap[T]{
 		items:  make([]T, 0, 1000),
 		exists: make(map[string]struct{}, 1000),
-		st:     newStack(),
+		st:     NewStack(),
 		len:    0,
 		maxLen: maxLen,
 		cond:   sync.Cond{L: &sync.Mutex{}},
@@ -107,11 +107,11 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 			// delete element
 			delete(bh.exists, bh.items[i].ID())
 			out = append(out, bh.items[i])
-			bh.st.add(i)
+			bh.st.Add(i)
 		}
 	}
 
-	ids := bh.st.indices()
+	ids := bh.st.Indices()
 	adjusment := 0
 	for i := 0; i < len(ids); i++ {
 		start := ids[i][0] - adjusment
