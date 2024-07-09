@@ -1,3 +1,3 @@
 module github.com/roadrunner-server/priority_queue
 
-go 1.22.4
+go 1.22.5
