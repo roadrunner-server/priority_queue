@@ -75,7 +75,7 @@ func (bh *BinHeap[T]) fixDown(curr, end int) {
 			idxToSwap = cTwoIdx
 		}
 		if (bh.items)[idxToSwap].Priority() < (bh.items)[curr].Priority() {
-			bh.swap(uint64(curr), uint64(idxToSwap))
+			bh.swap(uint64(curr), uint64(idxToSwap)) //nolint:gosec
 			curr = idxToSwap
 			cOneIdx = (curr << 1) + 1
 		} else {
@@ -187,9 +187,9 @@ func (bh *BinHeap[T]) ExtractMin() T {
 
 	bh.swap(0, bh.len-1)
 
-	item := (bh.items)[int(bh.len)-1]
-	bh.items = (bh).items[0 : int(bh.len)-1]
-	bh.fixDown(0, int(bh.len-2))
+	item := (bh.items)[int(bh.len)-1]        //nolint:gosec
+	bh.items = (bh).items[0 : int(bh.len)-1] //nolint:gosec
+	bh.fixDown(0, int(bh.len-2))             //nolint:gosec
 
 	// reduce len
 	atomic.AddUint64(&bh.len, ^uint64(0))
