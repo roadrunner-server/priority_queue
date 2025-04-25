@@ -102,7 +102,7 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 
 	out := make([]T, 0, 10)
 
-	for i := 0; i < len(bh.items); i++ {
+	for i := range bh.items {
 		if bh.items[i].GroupID() == groupID {
 			// delete element
 			delete(bh.exists, bh.items[i].ID())
@@ -113,7 +113,7 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 
 	ids := bh.st.Indices()
 	adjusment := 0
-	for i := 0; i < len(ids); i++ {
+	for i := range ids {
 		start := ids[i][0] - adjusment
 		end := ids[i][1] - adjusment
 
