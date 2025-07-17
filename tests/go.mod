@@ -6,7 +6,7 @@ toolchain go1.24.0
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/roadrunner-server/priority_queue v1.0.0
+	github.com/roadrunner-server/priority_queue v1.0.5
 	github.com/stretchr/testify v1.10.0
 )
 
