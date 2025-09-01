@@ -1,14 +1,13 @@
-package priorityqueue_test
+package priorityqueue
 
 import (
 	"testing"
 
-	priorityqueue "github.com/roadrunner-server/priority_queue"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMonotonicStackInit(t *testing.T) {
-	c := priorityqueue.NewStack()
+	c := newStack()
 	c.Add(1)
 	c.Add(2)
 	c.Add(3)
@@ -21,7 +20,7 @@ func TestMonotonicStackInit(t *testing.T) {
 }
 
 func TestMonotonicStackLastStartEl(t *testing.T) {
-	c := priorityqueue.NewStack()
+	c := newStack()
 	c.Add(1)
 	c.Add(3)
 	c.Add(5)

@@ -1,4 +1,4 @@
-package priorityqueue_test
+package priorityqueue
 
 import (
 	"fmt"
@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	priorityqueue "github.com/roadrunner-server/priority_queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,23 +40,23 @@ func (t Test) Priority() int64 {
 }
 
 func TestBinHeap_Init(t *testing.T) {
-	a := []priorityqueue.Item{
-		NewTest(2, uuid.NewString(), uuid.NewString()),
+	a := []Item{
+		NewTest(2, "foo0", "bar0"),
 		NewTest(23, uuid.NewString(), uuid.NewString()),
 		NewTest(33, uuid.NewString(), uuid.NewString()),
 		NewTest(44, uuid.NewString(), uuid.NewString()),
 		NewTest(1, uuid.NewString(), uuid.NewString()),
-		NewTest(2, uuid.NewString(), uuid.NewString()),
-		NewTest(2, uuid.NewString(), uuid.NewString()),
-		NewTest(2, uuid.NewString(), uuid.NewString()),
+		NewTest(2, "foo1", "bar1"),
+		NewTest(2, "foo2", "bar2"),
+		NewTest(2, "foo3", "bar3"),
 		NewTest(4, uuid.NewString(), uuid.NewString()),
 		NewTest(6, uuid.NewString(), uuid.NewString()),
 		NewTest(99, uuid.NewString(), uuid.NewString()),
 	}
 
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](12)
+	bh := NewBinHeap[Item](12)
 
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		bh.Insert(a[i])
 	}
 
@@ -77,7 +76,7 @@ func TestBinHeap_Init(t *testing.T) {
 
 	res := make([]int64, 0, 12)
 
-	for i := 0; i < 11; i++ {
+	for range 11 {
 		item := bh.ExtractMin()
 		item.Priority()
 		res = append(res, item.Priority())
@@ -87,7 +86,7 @@ func TestBinHeap_Init(t *testing.T) {
 }
 
 func TestBinHeap_MaxLen(t *testing.T) {
-	a := []priorityqueue.Item{
+	a := []Item{
 		NewTest(2, uuid.NewString(), uuid.NewString()),
 		NewTest(23, uuid.NewString(), uuid.NewString()),
 		NewTest(33, uuid.NewString(), uuid.NewString()),
@@ -101,12 +100,12 @@ func TestBinHeap_MaxLen(t *testing.T) {
 		NewTest(99, uuid.NewString(), uuid.NewString()),
 	}
 
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](1)
+	bh := NewBinHeap[Item](1)
 
 	go func() {
-		res := make([]priorityqueue.Item, 0, 12)
+		res := make([]Item, 0, 12)
 
-		for i := 0; i < 11; i++ {
+		for range 11 {
 			item := bh.ExtractMin()
 			res = append(res, item)
 		}
@@ -125,7 +124,7 @@ func TestNewPriorityQueue(t *testing.T) {
 	insertsPerSec := uint64(0)
 	getPerSec := uint64(0)
 	stopCh := make(chan struct{}, 1)
-	pq := priorityqueue.NewBinHeap[priorityqueue.Item](1000)
+	pq := NewBinHeap[Item](1000)
 
 	go func() {
 		tt3 := time.NewTicker(time.Millisecond * 10)
@@ -188,7 +187,7 @@ func TestNewPriorityQueue(t *testing.T) {
 }
 
 func TestNewItemWithTimeout(t *testing.T) {
-	a := []priorityqueue.Item{
+	a := []Item{
 		NewTest(5, uuid.NewString(), uuid.NewString()),
 		NewTest(23, uuid.NewString(), uuid.NewString()),
 		NewTest(33, uuid.NewString(), uuid.NewString()),
@@ -206,7 +205,7 @@ func TestNewItemWithTimeout(t *testing.T) {
 		first item should be extracted not less than 5 seconds after we call ExtractMin
 		5 seconds is a minimum timeout for our items
 	*/
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](100)
+	bh := NewBinHeap[Item](100)
 
 	for i := 0; i < len(a); i++ {
 		bh.Insert(a[i])
@@ -219,7 +218,7 @@ func TestNewItemWithTimeout(t *testing.T) {
 }
 
 func TestItemPeek(t *testing.T) {
-	a := []priorityqueue.Item{
+	a := []Item{
 		NewTest(5, uuid.NewString(), uuid.NewString()),
 		NewTest(23, uuid.NewString(), uuid.NewString()),
 		NewTest(33, uuid.NewString(), uuid.NewString()),
@@ -237,7 +236,7 @@ func TestItemPeek(t *testing.T) {
 		first item should be extracted not less than 5 seconds after we call ExtractMin
 		5 seconds is a minimum timeout for our items
 	*/
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](100)
+	bh := NewBinHeap[Item](100)
 
 	for i := 0; i < len(a); i++ {
 		bh.Insert(a[i])
@@ -253,7 +252,7 @@ func TestItemPeek(t *testing.T) {
 }
 
 func TestItemPeekConcurrent(t *testing.T) {
-	a := []priorityqueue.Item{
+	a := []Item{
 		NewTest(5, uuid.NewString(), uuid.NewString()),
 		NewTest(23, uuid.NewString(), uuid.NewString()),
 		NewTest(33, uuid.NewString(), uuid.NewString()),
@@ -271,7 +270,7 @@ func TestItemPeekConcurrent(t *testing.T) {
 		first item should be extracted not less than 5 seconds after we call ExtractMin
 		5 seconds is a minimum timeout for our items
 	*/
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](100)
+	bh := NewBinHeap[Item](100)
 
 	for i := 0; i < len(a); i++ {
 		bh.Insert(a[i])
@@ -299,7 +298,7 @@ func TestItemPeekConcurrent(t *testing.T) {
 }
 
 func TestBinHeap_Remove(t *testing.T) {
-	a := []priorityqueue.Item{
+	a := []Item{
 		NewTest(2, "1", "101"),
 		NewTest(5, "1", "102"),
 		NewTest(99, "1", "103"),
@@ -313,13 +312,13 @@ func TestBinHeap_Remove(t *testing.T) {
 		NewTest(2, "1", "111"),
 	}
 
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](12)
+	bh := NewBinHeap[Item](12)
 
 	for i := 0; i < len(a); i++ {
 		bh.Insert(a[i])
 	}
 
-	expected := []priorityqueue.Item{
+	expected := []Item{
 		NewTest(4, "6", "104"),
 		NewTest(6, "7", "105"),
 		NewTest(23, "2", "106"),
@@ -338,7 +337,7 @@ func TestBinHeap_Remove(t *testing.T) {
 		}
 	}
 
-	res := make([]priorityqueue.Item, 0, 12)
+	res := make([]Item, 0, 12)
 
 	for i := 0; i < 5; i++ {
 		item := bh.ExtractMin()
@@ -350,7 +349,7 @@ func TestBinHeap_Remove(t *testing.T) {
 
 func TestExists(t *testing.T) {
 	const id = "11111111111"
-	a := []priorityqueue.Item{
+	a := []Item{
 		NewTest(2, "1", id),
 		NewTest(5, "1", uuid.NewString()),
 		NewTest(99, "1", uuid.NewString()),
@@ -364,7 +363,7 @@ func TestExists(t *testing.T) {
 		NewTest(2, "1", uuid.NewString()),
 	}
 
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](12)
+	bh := NewBinHeap[Item](12)
 
 	for i := 0; i < len(a); i++ {
 		bh.Insert(a[i])
@@ -379,7 +378,7 @@ func TestExists(t *testing.T) {
 }
 
 func BenchmarkGeneral(b *testing.B) {
-	bh := priorityqueue.NewBinHeap[priorityqueue.Item](100)
+	bh := NewBinHeap[Item](100)
 	id := uuid.NewString()
 	id2 := uuid.NewString()
 

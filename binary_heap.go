@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 )
 
-// Item represents binary heap item
+// Item represents a binary heap item
 type Item interface {
-	// Unique ID of the item
+	// ID represents a unique ID of the item
 	ID() string
 	// Priority returns the Item's priority to sort
 	Priority() int64
@@ -24,7 +24,7 @@ type BinHeap[T Item] struct {
 	// exists used as a shadow structure to check if the item exists in the BinHeap
 	exists map[string]struct{}
 	st     *stack
-	// find a way to use pointer to the raw data
+	// find a way to use a pointer to the raw data
 	len    uint64
 	maxLen uint64
 	cond   sync.Cond
@@ -34,7 +34,7 @@ func NewBinHeap[T Item](maxLen uint64) *BinHeap[T] {
 	return &BinHeap[T]{
 		items:  make([]T, 0, 1000),
 		exists: make(map[string]struct{}, 1000),
-		st:     NewStack(),
+		st:     newStack(),
 		len:    0,
 		maxLen: maxLen,
 		cond:   sync.Cond{L: &sync.Mutex{}},

@@ -8,7 +8,7 @@ type stack struct {
 	idx [][2]int
 }
 
-func NewStack() *stack {
+func newStack() *stack {
 	return &stack{
 		idx: make([][2]int, 0, 10),
 	}
