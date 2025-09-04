@@ -33,7 +33,6 @@ jobs:
 
       - name: Run golang tests with coverage
         run: |
-          cd tests
           mkdir ./coverage
           go test -v -race -cover -coverpkg=./... -coverprofile=./coverage/pq-${{ matrix.os }}.out -covermode=atomic ./...
 
@@ -41,7 +40,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pq-${{ matrix.os }}
-          path: ./tests/coverage/pq-${{ matrix.os }}.out
+          path: ./coverage/pq-${{ matrix.os }}.out
 
   codecov:
     name: Upload codecov
