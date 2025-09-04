@@ -113,7 +113,7 @@ func TestBinHeap_MaxLen(t *testing.T) {
 	}()
 
 	time.Sleep(time.Second)
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		bh.Insert(a[i])
 	}
 
@@ -207,7 +207,7 @@ func TestNewItemWithTimeout(t *testing.T) {
 	*/
 	bh := NewBinHeap[Item](100)
 
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		bh.Insert(a[i])
 	}
 
@@ -238,7 +238,7 @@ func TestItemPeek(t *testing.T) {
 	*/
 	bh := NewBinHeap[Item](100)
 
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		bh.Insert(a[i])
 	}
 
@@ -272,7 +272,7 @@ func TestItemPeekConcurrent(t *testing.T) {
 	*/
 	bh := NewBinHeap[Item](100)
 
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		bh.Insert(a[i])
 	}
 
@@ -280,7 +280,7 @@ func TestItemPeekConcurrent(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			tmp := bh.PeekPriority()
 			_ = tmp
 		}
@@ -288,7 +288,7 @@ func TestItemPeekConcurrent(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 11; i++ {
+		for range 11 {
 			min := bh.ExtractMin()
 			_ = min
 		}
@@ -314,7 +314,7 @@ func TestBinHeap_Remove(t *testing.T) {
 
 	bh := NewBinHeap[Item](12)
 
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		bh.Insert(a[i])
 	}
 
@@ -331,7 +331,7 @@ func TestBinHeap_Remove(t *testing.T) {
 		t.Fatal("should be 5")
 	}
 
-	for i := 0; i < len(out); i++ {
+	for i := range out {
 		if out[i].GroupID() != "1" {
 			t.Fatal("id is not 1")
 		}
@@ -339,7 +339,7 @@ func TestBinHeap_Remove(t *testing.T) {
 
 	res := make([]Item, 0, 12)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		item := bh.ExtractMin()
 		res = append(res, item)
 	}
@@ -365,7 +365,7 @@ func TestExists(t *testing.T) {
 
 	bh := NewBinHeap[Item](12)
 
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		bh.Insert(a[i])
 	}
 
@@ -383,8 +383,8 @@ func BenchmarkGeneral(b *testing.B) {
 	id2 := uuid.NewString()
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		bh.Insert(NewTest(2, id, id2))
 		bh.Remove(id)
 	}
