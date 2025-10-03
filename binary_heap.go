@@ -28,17 +28,22 @@ type BinHeap[T Item] struct {
 	len    uint64
 	maxLen uint64
 	cond   sync.Cond
+	minCh  chan T
 }
 
 func NewBinHeap[T Item](maxLen uint64) *BinHeap[T] {
-	return &BinHeap[T]{
+	bh := &BinHeap[T]{
 		items:  make([]T, 0, 1000),
 		exists: make(map[string]struct{}, 1000),
 		st:     newStack(),
 		len:    0,
 		maxLen: maxLen,
 		cond:   sync.Cond{L: &sync.Mutex{}},
+		minCh:  make(chan T, 5),
 	}
+	go bh.extractMin()
+
+	return bh
 }
 
 func (bh *BinHeap[T]) fixUp() {
@@ -177,26 +182,35 @@ func (bh *BinHeap[T]) Insert(item T) {
 	bh.cond.Signal()
 }
 
-func (bh *BinHeap[T]) ExtractMin() T {
-	bh.cond.L.Lock()
+// ExtractMinCh returns a channel to extract the minimum item
+// We need this function to be able to use select statement and avoid blocking
+// because ExtractMin is a blocking operation (on bh.cond.Wait())
+func (bh *BinHeap[T]) ExtractMinCh() chan T {
+	return bh.minCh
+}
 
-	// if len == 0, wait for the signal
-	for bh.Len() == 0 {
-		bh.cond.Wait()
+func (bh *BinHeap[T]) extractMin() {
+	for {
+		bh.cond.L.Lock()
+
+		// if len == 0, wait for the signal
+		for bh.Len() == 0 {
+			bh.cond.Wait()
+		}
+
+		bh.swap(0, bh.len-1)
+
+		item := (bh.items)[int(bh.len)-1]        //nolint:gosec
+		bh.items = (bh).items[0 : int(bh.len)-1] //nolint:gosec
+		bh.fixDown(0, int(bh.len-2))             //nolint:gosec
+
+		// reduce len
+		atomic.AddUint64(&bh.len, ^uint64(0))
+
+		// remove item
+		delete(bh.exists, item.ID())
+		bh.cond.L.Unlock()
+		// send item to the channel
+		bh.minCh <- item
 	}
-
-	bh.swap(0, bh.len-1)
-
-	item := (bh.items)[int(bh.len)-1]        //nolint:gosec
-	bh.items = (bh).items[0 : int(bh.len)-1] //nolint:gosec
-	bh.fixDown(0, int(bh.len-2))             //nolint:gosec
-
-	// reduce len
-	atomic.AddUint64(&bh.len, ^uint64(0))
-
-	// remove item
-	delete(bh.exists, item.ID())
-
-	bh.cond.L.Unlock()
-	return item
 }

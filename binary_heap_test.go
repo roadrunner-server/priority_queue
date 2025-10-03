@@ -76,8 +76,9 @@ func TestBinHeap_Init(t *testing.T) {
 
 	res := make([]int64, 0, 12)
 
+	itemCh := bh.ExtractMinCh()
 	for range 11 {
-		item := bh.ExtractMin()
+		item := <-itemCh
 		item.Priority()
 		res = append(res, item.Priority())
 	}
@@ -105,8 +106,9 @@ func TestBinHeap_MaxLen(t *testing.T) {
 	go func() {
 		res := make([]Item, 0, 12)
 
+		itemCh := bh.ExtractMinCh()
 		for range 11 {
-			item := bh.ExtractMin()
+			item := <-itemCh
 			res = append(res, item)
 		}
 		require.Equal(t, 11, len(res))
@@ -156,13 +158,14 @@ func TestNewPriorityQueue(t *testing.T) {
 	}()
 
 	go func() {
+		itemCh := pq.ExtractMinCh()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
-				pq.ExtractMin()
+			case item := <-itemCh:
 				atomic.AddUint64(&getPerSec, 1)
+				_ = item
 			}
 		}
 	}()
@@ -212,7 +215,8 @@ func TestNewItemWithTimeout(t *testing.T) {
 	}
 
 	tn := time.Now()
-	item := bh.ExtractMin()
+	itemCh := bh.ExtractMinCh()
+	item := <-itemCh
 	assert.Equal(t, int64(5), item.Priority())
 	assert.GreaterOrEqual(t, float64(5), time.Since(tn).Seconds())
 }
@@ -246,7 +250,7 @@ func TestItemPeek(t *testing.T) {
 	assert.Equal(t, int64(5), tmp)
 
 	tn := time.Now()
-	item := bh.ExtractMin()
+	item := <-bh.ExtractMinCh()
 	assert.Equal(t, int64(5), item.Priority())
 	assert.GreaterOrEqual(t, float64(5), time.Since(tn).Seconds())
 }
@@ -289,7 +293,7 @@ func TestItemPeekConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 11 {
-			min := bh.ExtractMin()
+			min := <-bh.ExtractMinCh()
 			_ = min
 		}
 	}()
@@ -340,7 +344,7 @@ func TestBinHeap_Remove(t *testing.T) {
 	res := make([]Item, 0, 12)
 
 	for range 5 {
-		item := bh.ExtractMin()
+		item := <-bh.ExtractMinCh()
 		res = append(res, item)
 	}
 
