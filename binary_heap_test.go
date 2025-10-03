@@ -165,7 +165,7 @@ func TestNewPriorityQueue(t *testing.T) {
 				return
 			case item := <-itemCh:
 				atomic.AddUint64(&getPerSec, 1)
-				_ = item
+				require.NotNil(t, item)
 			}
 		}
 	}()
