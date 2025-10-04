@@ -5,6 +5,7 @@ binary heap (min-heap) algorithm used as a core for the priority queue
 package priorityqueue
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 )
@@ -25,10 +26,12 @@ type BinHeap[T Item] struct {
 	exists map[string]struct{}
 	st     *stack
 	// find a way to use a pointer to the raw data
-	len    uint64
-	maxLen uint64
-	cond   sync.Cond
-	minCh  chan T
+	len     uint64
+	maxLen  uint64
+	cond    sync.Cond
+	minCh   chan T
+	stopCf  context.CancelFunc
+	stopCtx context.Context
 }
 
 func NewBinHeap[T Item](maxLen uint64) *BinHeap[T] {
@@ -39,8 +42,11 @@ func NewBinHeap[T Item](maxLen uint64) *BinHeap[T] {
 		len:    0,
 		maxLen: maxLen,
 		cond:   sync.Cond{L: &sync.Mutex{}},
-		minCh:  make(chan T, 5),
+		minCh:  make(chan T),
 	}
+
+	bh.stopCtx, bh.stopCf = context.WithCancel(context.Background())
+
 	go bh.extractMin()
 
 	return bh
@@ -100,6 +106,10 @@ func (bh *BinHeap[T]) Exists(id string) bool {
 	return false
 }
 
+func (bh *BinHeap[T]) Stop() {
+	bh.stopCf()
+}
+
 // Remove removes all elements with the provided ID and returns the slice with them
 func (bh *BinHeap[T]) Remove(groupID string) []T {
 	bh.cond.L.Lock()
@@ -117,13 +127,13 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 	}
 
 	ids := bh.st.Indices()
-	adjusment := 0
+	adjustment := 0
 	for i := range ids {
-		start := ids[i][0] - adjusment
-		end := ids[i][1] - adjusment
+		start := ids[i][0] - adjustment
+		end := ids[i][1] - adjustment
 
 		bh.items = append(bh.items[:start], bh.items[end+1:]...)
-		adjusment += end - start + 1
+		adjustment += end - start + 1
 	}
 
 	atomic.StoreUint64(&bh.len, uint64(len(bh.items)))
@@ -185,7 +195,7 @@ func (bh *BinHeap[T]) Insert(item T) {
 // ExtractMinCh returns a channel to extract the minimum item
 // We need this function to be able to use select statement and avoid blocking
 // because ExtractMin is a blocking operation (on bh.cond.Wait())
-func (bh *BinHeap[T]) ExtractMinCh() chan T {
+func (bh *BinHeap[T]) ExtractMinCh() <-chan T {
 	return bh.minCh
 }
 
@@ -211,6 +221,11 @@ func (bh *BinHeap[T]) extractMin() {
 		delete(bh.exists, item.ID())
 		bh.cond.L.Unlock()
 		// send item to the channel
-		bh.minCh <- item
+		select {
+		case bh.minCh <- item:
+		case <-bh.stopCtx.Done():
+			close(bh.minCh)
+			return
+		}
 	}
 }

@@ -163,7 +163,10 @@ func TestNewPriorityQueue(t *testing.T) {
 			select {
 			case <-stopCh:
 				return
-			case item := <-itemCh:
+			case item, cl := <-itemCh:
+				if !cl {
+					return
+				}
 				atomic.AddUint64(&getPerSec, 1)
 				require.NotNil(t, item)
 			}
@@ -183,6 +186,8 @@ func TestNewPriorityQueue(t *testing.T) {
 	}()
 
 	time.Sleep(time.Second * 5)
+
+	pq.Stop()
 	stopCh <- struct{}{}
 	stopCh <- struct{}{}
 	stopCh <- struct{}{}
@@ -237,7 +242,7 @@ func TestItemPeek(t *testing.T) {
 	}
 
 	/*
-		first item should be extracted not less than 5 seconds after we call ExtractMin
+		the first item should be extracted not less than 5 seconds after we call ExtractMin
 		5 seconds is a minimum timeout for our items
 	*/
 	bh := NewBinHeap[Item](100)
