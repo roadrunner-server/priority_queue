@@ -188,10 +188,16 @@ func TestNewPriorityQueue(t *testing.T) {
 	time.Sleep(time.Second * 5)
 
 	pq.Stop()
-	stopCh <- struct{}{}
-	stopCh <- struct{}{}
-	stopCh <- struct{}{}
-	stopCh <- struct{}{}
+
+	for range 4 {
+		select {
+		case stopCh <- struct{}{}:
+		default:
+			// it might happed that we already exited from one of the goroutines
+			// by the signal from the PQ.Stop() method
+			continue
+		}
+	}
 }
 
 func TestNewItemWithTimeout(t *testing.T) {
