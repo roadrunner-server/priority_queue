@@ -54,10 +54,12 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download code coverage results
-        uses: actions/download-artifact@v7
-        with:
-          name: pq-ubuntu-latest
-          path: ./coverage
+        uses: actions/download-artifact@v8
+      - run: |
+          cd pq-ubuntu-latest
+          echo 'mode: atomic' > summary.txt
+          tail -q -n +2 *.out >> summary.txt
+          sed -i '2,${/roadrunner/!d}' summary.txt
 
       - name: Prepare coverage report
         run: |
