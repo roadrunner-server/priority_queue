@@ -37,7 +37,7 @@ jobs:
           go test -v -race -cover -coverpkg=./... -coverprofile=./coverage/pq-${{ matrix.os }}.out -covermode=atomic ./...
 
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: pq-${{ matrix.os }}
           path: ./coverage/pq-${{ matrix.os }}.out
