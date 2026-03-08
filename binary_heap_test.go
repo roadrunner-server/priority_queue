@@ -578,7 +578,7 @@ func TestBinHeap_RemoveUnblocksInsert(t *testing.T) {
 func TestBinHeap_ConcurrentInsertRemoveExtract(t *testing.T) {
 	// Large capacity to avoid Insert back-pressure during stress test;
 	// back-pressure is tested separately in TestBinHeap_BoundedInsertBackpressure.
-	bh := NewBinHeap[Item](100_000)
+	bh := NewBinHeap[Item](^uint64(0))
 
 	var done atomic.Bool
 	var producerWg sync.WaitGroup
