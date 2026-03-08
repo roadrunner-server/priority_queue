@@ -101,6 +101,8 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 		}
 	}
 
+	oldLen := len(bh.items)
+
 	ids := bh.st.Indices()
 	adjustment := 0
 	for i := range ids {
@@ -110,6 +112,9 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 		bh.items = append(bh.items[:start], bh.items[end+1:]...)
 		adjustment += end - start + 1
 	}
+
+	// Zero freed tail slots to allow GC of removed items
+	clear(bh.items[len(bh.items):oldLen])
 
 	// re-heapify after compaction (Floyd's algorithm)
 	n := len(bh.items)
@@ -173,6 +178,8 @@ func (bh *BinHeap[T]) ExtractMin() T {
 	bh.swap(0, n-1)
 
 	item := bh.items[n-1]
+	var zero T
+	bh.items[n-1] = zero
 	bh.items = bh.items[:n-1]
 	bh.fixDown(0, int(n)-2) //nolint:gosec
 
