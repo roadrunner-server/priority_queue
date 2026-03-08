@@ -289,12 +289,33 @@ func TestItemPeekConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 11 {
-			min := bh.ExtractMin()
-			_ = min
+			m := bh.ExtractMin()
+			_ = m
 		}
 	}()
 
 	wg.Wait()
+}
+
+func TestBinHeap_RemoveHeapProperty(t *testing.T) {
+	// Regression test: Remove must restore the heap property after compaction.
+	// Insert priorities [1(A), 3(B), 2(B)] → heap: [1, 3, 2]
+	// Remove group "A" → compacts to [3, 2] which violates min-heap
+	// Without re-heapify, ExtractMin would return 3 instead of 2.
+	bh := NewBinHeap[Item](10)
+	bh.Insert(NewTest(1, "A", "id1"))
+	bh.Insert(NewTest(3, "B", "id2"))
+	bh.Insert(NewTest(2, "B", "id3"))
+
+	removed := bh.Remove("A")
+	require.Len(t, removed, 1)
+	require.Equal(t, "id1", removed[0].ID())
+
+	first := bh.ExtractMin()
+	assert.Equal(t, int64(2), first.Priority(), "expected min priority 2, got %d", first.Priority())
+
+	second := bh.ExtractMin()
+	assert.Equal(t, int64(3), second.Priority(), "expected priority 3, got %d", second.Priority())
 }
 
 func TestBinHeap_Remove(t *testing.T) {
@@ -377,15 +398,320 @@ func TestExists(t *testing.T) {
 	assert.False(t, bh.Exists(id))
 }
 
-func BenchmarkGeneral(b *testing.B) {
+func TestBinHeap_RemoveHeapPropertyLarge(t *testing.T) {
+	bh := NewBinHeap[Item](200)
+
+	// Insert 100 items across 5 groups with interleaved priorities so
+	// the target group's items are scattered at root, mid, and leaf heap levels.
+	for i := 0; i < 100; i++ {
+		groupID := fmt.Sprintf("g%d", i%5)
+		priority := int64(i + 1) // 1..100, round-robin across groups
+		id := fmt.Sprintf("item-%d", i)
+		bh.Insert(NewTest(priority, groupID, id))
+	}
+
+	require.Equal(t, uint64(100), bh.Len())
+
+	// Remove group "g2" (priorities 3,8,13,18,...,98 — 20 items)
+	removed := bh.Remove("g2")
+	require.Len(t, removed, 20)
+	for _, item := range removed {
+		require.Equal(t, "g2", item.GroupID())
+	}
+	require.Equal(t, uint64(80), bh.Len())
+
+	// Extract all remaining items and verify strictly non-decreasing order
+	var prev int64
+	for i := 0; i < 80; i++ {
+		item := bh.ExtractMin()
+		require.GreaterOrEqual(t, item.Priority(), prev,
+			"item %d: priority %d should be >= previous %d", i, item.Priority(), prev)
+		require.NotEqual(t, "g2", item.GroupID())
+		prev = item.Priority()
+	}
+
+	require.Equal(t, uint64(0), bh.Len())
+}
+
+func TestBinHeap_RemoveMultipleGroups(t *testing.T) {
 	bh := NewBinHeap[Item](100)
-	id := uuid.NewString()
-	id2 := uuid.NewString()
+
+	// 4 groups with known priorities
+	bh.Insert(NewTest(10, "A", "a1"))
+	bh.Insert(NewTest(30, "A", "a2"))
+	bh.Insert(NewTest(5, "B", "b1"))
+	bh.Insert(NewTest(25, "B", "b2"))
+	bh.Insert(NewTest(15, "C", "c1"))
+	bh.Insert(NewTest(35, "C", "c2"))
+	bh.Insert(NewTest(20, "D", "d1"))
+	bh.Insert(NewTest(40, "D", "d2"))
+
+	// Remove group A, verify min is B's 5
+	removedA := bh.Remove("A")
+	require.Len(t, removedA, 2)
+	require.Equal(t, int64(5), bh.PeekPriority())
+
+	// Remove group B, verify min is now C's 15
+	removedB := bh.Remove("B")
+	require.Len(t, removedB, 2)
+	require.Equal(t, int64(15), bh.PeekPriority())
+
+	// Extract remaining items (C and D) and verify order
+	expected := []int64{15, 20, 35, 40}
+	for _, exp := range expected {
+		item := bh.ExtractMin()
+		require.Equal(t, exp, item.Priority())
+	}
+}
+
+func TestBinHeap_RemoveEdgeCases(t *testing.T) {
+	t.Run("remove all items", func(t *testing.T) {
+		bh := NewBinHeap[Item](10)
+		bh.Insert(NewTest(1, "only", "id1"))
+		bh.Insert(NewTest(2, "only", "id2"))
+		bh.Insert(NewTest(3, "only", "id3"))
+
+		removed := bh.Remove("only")
+		require.Len(t, removed, 3)
+		require.Equal(t, uint64(0), bh.Len())
+
+		// Insert new items and verify they work after full removal
+		bh.Insert(NewTest(42, "new", "id4"))
+		require.Equal(t, uint64(1), bh.Len())
+		item := bh.ExtractMin()
+		require.Equal(t, int64(42), item.Priority())
+	})
+
+	t.Run("remove non-existent group", func(t *testing.T) {
+		bh := NewBinHeap[Item](10)
+		bh.Insert(NewTest(1, "exists", "id1"))
+		bh.Insert(NewTest(2, "exists", "id2"))
+
+		removed := bh.Remove("ghost")
+		require.Empty(t, removed)
+		require.Equal(t, uint64(2), bh.Len())
+
+		// Verify heap still works correctly
+		item := bh.ExtractMin()
+		require.Equal(t, int64(1), item.Priority())
+	})
+
+	t.Run("remove from empty heap", func(t *testing.T) {
+		bh := NewBinHeap[Item](10)
+		removed := bh.Remove("anything")
+		require.Empty(t, removed)
+		require.Equal(t, uint64(0), bh.Len())
+	})
+}
+
+func TestBinHeap_BoundedInsertBackpressure(t *testing.T) {
+	bh := NewBinHeap[Item](5)
+
+	// Fill to capacity
+	for i := 0; i < 5; i++ {
+		bh.Insert(NewTest(int64(i+1), "g1", fmt.Sprintf("item-%d", i)))
+	}
+	require.Equal(t, uint64(5), bh.Len())
+
+	// Launch goroutine to insert one more (should block at capacity)
+	inserted := make(chan struct{})
+	go func() {
+		bh.Insert(NewTest(10, "g1", "blocked-item"))
+		close(inserted)
+	}()
+
+	// Give goroutine time to start and block on the full heap
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, uint64(5), bh.Len(), "producer should be blocked, heap still at capacity")
+
+	// Extract one item to free space and signal the blocked producer
+	item := bh.ExtractMin()
+	require.Equal(t, int64(1), item.Priority())
+
+	// Wait for insert goroutine to complete
+	select {
+	case <-inserted:
+		// success — producer unblocked
+	case <-time.After(2 * time.Second):
+		t.Fatal("insert goroutine did not unblock after ExtractMin")
+	}
+
+	require.Equal(t, uint64(5), bh.Len(), "should be 5: was 5, extracted 1, inserted 1")
+}
+
+func TestBinHeap_ConcurrentInsertRemoveExtract(t *testing.T) {
+	// Large capacity to avoid Insert back-pressure during stress test;
+	// back-pressure is tested separately in TestBinHeap_BoundedInsertBackpressure.
+	bh := NewBinHeap[Item](100_000)
+
+	var done atomic.Bool
+	var producerWg sync.WaitGroup
+	var consumerWg sync.WaitGroup
+
+	// 3 producer goroutines inserting items with random priorities across 10 groups
+	for p := 0; p < 3; p++ {
+		producerWg.Add(1)
+		go func(id int) {
+			defer producerWg.Done()
+			for i := 0; !done.Load(); i++ {
+				groupID := fmt.Sprintf("g%d", i%10)
+				itemID := fmt.Sprintf("p%d-i%d", id, i)
+				bh.Insert(NewTest(rand.Int63n(1000), groupID, itemID)) //nolint:gosec
+			}
+		}(p)
+	}
+
+	// 2 consumer goroutines calling ExtractMin
+	for c := 0; c < 2; c++ {
+		consumerWg.Add(1)
+		go func() {
+			defer consumerWg.Done()
+			for !done.Load() {
+				_ = bh.ExtractMin()
+			}
+		}()
+	}
+
+	// 1 remover goroutine periodically removing a random group
+	producerWg.Add(1)
+	go func() {
+		defer producerWg.Done()
+		for !done.Load() {
+			bh.Remove(fmt.Sprintf("g%d", rand.Intn(10))) //nolint:gosec
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	// Run for 2 seconds
+	time.Sleep(2 * time.Second)
+	done.Store(true)
+
+	// Wait for producers and remover to finish
+	producerWg.Wait()
+
+	// Unblock consumers that may be stuck waiting on an empty heap
+	consumerDone := make(chan struct{})
+	go func() {
+		consumerWg.Wait()
+		close(consumerDone)
+	}()
+
+	for {
+		select {
+		case <-consumerDone:
+			// All consumers exited — verify heap is in a consistent state
+			_ = bh.Len()
+			return
+		default:
+			bh.Insert(NewTest(0, "sentinel", fmt.Sprintf("s-%d", time.Now().UnixNano())))
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func TestBinHeap_LargeScaleOrdering(t *testing.T) {
+	const n = 10_000
+	bh := NewBinHeap[Item](uint64(n) + 1)
+
+	for i := 0; i < n; i++ {
+		bh.Insert(NewTest(rand.Int63n(1000), "g", fmt.Sprintf("item-%d", i))) //nolint:gosec
+	}
+
+	var prev int64
+	for i := 0; i < n; i++ {
+		item := bh.ExtractMin()
+		require.GreaterOrEqual(t, item.Priority(), prev,
+			"item %d: priority %d should be >= previous %d", i, item.Priority(), prev)
+		prev = item.Priority()
+	}
+}
+
+func BenchmarkInsert(b *testing.B) {
+	bh := NewBinHeap[Item](1 << 30)
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		bh.Insert(NewTest(rand.Int63n(100000), "bench", fmt.Sprintf("b-%d", i))) //nolint:gosec
+		i++
+	}
+}
+
+func BenchmarkExtractMin(b *testing.B) {
+	bh := NewBinHeap[Item](uint64(max(b.N, 0)) + 1)
+	for i := range b.N {
+		bh.Insert(NewTest(rand.Int63n(100000), "bench", fmt.Sprintf("b-%d", i))) //nolint:gosec
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bh.ExtractMin()
+	}
+}
+
+func BenchmarkInsertExtractMin(b *testing.B) {
+	bh := NewBinHeap[Item](2000)
+	// Pre-fill with 1000 items
+	for i := 0; i < 1000; i++ {
+		bh.Insert(NewTest(rand.Int63n(100000), "bench", fmt.Sprintf("pre-%d", i))) //nolint:gosec
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	i := 0
+	for b.Loop() {
+		bh.Insert(NewTest(rand.Int63n(100000), "bench", fmt.Sprintf("b-%d", i))) //nolint:gosec
+		bh.ExtractMin()
+		i++
+	}
+}
+
+func BenchmarkRemove(b *testing.B) {
+	const numGroups = 100
+	const itemsPerGroup = 10
+	bh := NewBinHeap[Item](numGroups*itemsPerGroup + 100)
+
+	// Fill with 1000 items across 100 groups (10 items each)
+	groups := make([][]Item, numGroups)
+	for g := 0; g < numGroups; g++ {
+		groups[g] = make([]Item, 0, itemsPerGroup)
+		for i := 0; i < itemsPerGroup; i++ {
+			item := NewTest(rand.Int63n(10000), fmt.Sprintf("g%d", g), fmt.Sprintf("g%d-i%d", g, i)) //nolint:gosec
+			bh.Insert(item)
+			groups[g] = append(groups[g], item)
+		}
+	}
 
 	b.ReportAllocs()
-
-	for b.Loop() {
-		bh.Insert(NewTest(2, id, id2))
-		bh.Remove(id)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		groupIdx := i % numGroups
+		groupID := fmt.Sprintf("g%d", groupIdx)
+		bh.Remove(groupID)
+		// Restore items for next iteration
+		b.StopTimer()
+		for _, item := range groups[groupIdx] {
+			bh.Insert(item)
+		}
+		b.StartTimer()
 	}
+}
+
+func BenchmarkConcurrentInsertExtract(b *testing.B) {
+	bh := NewBinHeap[Item](10000)
+	// Pre-fill so ExtractMin rarely blocks
+	for i := 0; i < 5000; i++ {
+		bh.Insert(NewTest(rand.Int63n(10000), "bench", fmt.Sprintf("pre-%d", i))) //nolint:gosec
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			if i%2 == 0 {
+				bh.Insert(NewTest(rand.Int63n(10000), "bench", fmt.Sprintf("p-%d-%d", i, rand.Int63()))) //nolint:gosec
+			} else {
+				bh.ExtractMin()
+			}
+			i++
+		}
+	})
 }
