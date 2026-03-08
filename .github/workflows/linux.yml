@@ -55,20 +55,25 @@ jobs:
 
       - name: Download code coverage results
         uses: actions/download-artifact@v8
-      - run: |
-          cd pq-ubuntu-latest
-          echo 'mode: atomic' > summary.txt
-          tail -q -n +2 *.out >> summary.txt
-          sed -i '2,${/roadrunner/!d}' summary.txt
+        with:
+          name: pq-ubuntu-latest
+          path: coverage
 
       - name: Prepare coverage report
         run: |
-          cd ./coverage
           echo 'mode: atomic' > summary.txt
-          tail -q -n +2 *.out | awk '/github\.com\/roadrunner-server\/priority_queue/' >> summary.txt
+          tail -q -n +2 coverage/*.out >> summary.txt
+          awk '
+            NR == 1 { print; next }
+            /^github\.com\/roadrunner-server\/priority_queue\// {
+              sub(/^github\.com\/roadrunner-server\/priority_queue\//, "", $0)
+              print
+            }
+          ' summary.txt > summary.filtered.txt
+          mv summary.filtered.txt summary.txt
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5 # Docs: <https://github.com/codecov/codecov-action>
+        uses: codecov/codecov-action@v5
         with:
-          files: ./coverage/summary.txt
+          files: summary.txt
           fail_ci_if_error: false
