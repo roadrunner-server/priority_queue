@@ -121,8 +121,8 @@ func TestBinHeap_MaxLen(t *testing.T) {
 }
 
 func TestNewPriorityQueue(t *testing.T) {
-	insertsPerSec := uint64(0)
-	getPerSec := uint64(0)
+	var insertsPerSec atomic.Uint64
+	var getPerSec atomic.Uint64
 	stopCh := make(chan struct{}, 1)
 	pq := NewBinHeap[Item](1000)
 
@@ -144,10 +144,10 @@ func TestNewPriorityQueue(t *testing.T) {
 		for {
 			select {
 			case <-tt.C:
-				fmt.Printf("Insert per second: %d\n", atomic.LoadUint64(&insertsPerSec))
-				atomic.StoreUint64(&insertsPerSec, 0)
-				fmt.Printf("ExtractMin per second: %d\n", atomic.LoadUint64(&getPerSec))
-				atomic.StoreUint64(&getPerSec, 0)
+				fmt.Printf("Insert per second: %d\n", insertsPerSec.Load())
+				insertsPerSec.Store(0)
+				fmt.Printf("ExtractMin per second: %d\n", getPerSec.Load())
+				getPerSec.Store(0)
 			case <-stopCh:
 				tt.Stop()
 				return
@@ -162,7 +162,7 @@ func TestNewPriorityQueue(t *testing.T) {
 				return
 			default:
 				pq.ExtractMin()
-				atomic.AddUint64(&getPerSec, 1)
+				getPerSec.Add(1)
 			}
 		}
 	}()
@@ -174,7 +174,7 @@ func TestNewPriorityQueue(t *testing.T) {
 				return
 			default:
 				pq.Insert(NewTest(rand.Int63(), uuid.NewString(), uuid.NewString())) //nolint:gosec
-				atomic.AddUint64(&insertsPerSec, 1)
+				insertsPerSec.Add(1)
 			}
 		}
 	}()
@@ -276,23 +276,20 @@ func TestItemPeekConcurrent(t *testing.T) {
 		bh.Insert(a[i])
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		for range 1000 {
 			tmp := bh.PeekPriority()
 			_ = tmp
 		}
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for range 11 {
 			m := bh.ExtractMin()
 			_ = m
 		}
-	}()
+	})
 
 	wg.Wait()
 }
@@ -403,7 +400,7 @@ func TestBinHeap_RemoveHeapPropertyLarge(t *testing.T) {
 
 	// Insert 100 items across 5 groups with interleaved priorities so
 	// the target group's items are scattered at root, mid, and leaf heap levels.
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		groupID := fmt.Sprintf("g%d", i%5)
 		priority := int64(i + 1) // 1..100, round-robin across groups
 		id := fmt.Sprintf("item-%d", i)
@@ -422,7 +419,7 @@ func TestBinHeap_RemoveHeapPropertyLarge(t *testing.T) {
 
 	// Extract all remaining items and verify strictly non-decreasing order
 	var prev int64
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		item := bh.ExtractMin()
 		require.GreaterOrEqual(t, item.Priority(), prev,
 			"item %d: priority %d should be >= previous %d", i, item.Priority(), prev)
@@ -508,7 +505,7 @@ func TestBinHeap_BoundedInsertBackpressure(t *testing.T) {
 	bh := NewBinHeap[Item](5)
 
 	// Fill to capacity
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		bh.Insert(NewTest(int64(i+1), "g1", fmt.Sprintf("item-%d", i)))
 	}
 	require.Equal(t, uint64(5), bh.Len())
@@ -543,7 +540,7 @@ func TestBinHeap_RemoveUnblocksInsert(t *testing.T) {
 	bh := NewBinHeap[Item](5)
 
 	// Fill to capacity with one removable group
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		bh.Insert(NewTest(int64(i+1), "removeMe", fmt.Sprintf("item-%d", i)))
 	}
 	require.Equal(t, uint64(5), bh.Len())
@@ -585,38 +582,32 @@ func TestBinHeap_ConcurrentInsertRemoveExtract(t *testing.T) {
 	var consumerWg sync.WaitGroup
 
 	// 3 producer goroutines inserting items with random priorities across 10 groups
-	for p := 0; p < 3; p++ {
-		producerWg.Add(1)
-		go func(id int) {
-			defer producerWg.Done()
+	for p := range 3 {
+		producerWg.Go(func() {
 			for i := 0; !done.Load(); i++ {
 				groupID := fmt.Sprintf("g%d", i%10)
-				itemID := fmt.Sprintf("p%d-i%d", id, i)
+				itemID := fmt.Sprintf("p%d-i%d", p, i)
 				bh.Insert(NewTest(rand.Int63n(1000), groupID, itemID)) //nolint:gosec
 			}
-		}(p)
+		})
 	}
 
 	// 2 consumer goroutines calling ExtractMin
-	for c := 0; c < 2; c++ {
-		consumerWg.Add(1)
-		go func() {
-			defer consumerWg.Done()
+	for range 2 {
+		consumerWg.Go(func() {
 			for !done.Load() {
 				_ = bh.ExtractMin()
 			}
-		}()
+		})
 	}
 
 	// 1 remover goroutine periodically removing a random group
-	producerWg.Add(1)
-	go func() {
-		defer producerWg.Done()
+	producerWg.Go(func() {
 		for !done.Load() {
 			bh.Remove(fmt.Sprintf("g%d", rand.Intn(10))) //nolint:gosec
 			time.Sleep(10 * time.Millisecond)
 		}
-	}()
+	})
 
 	// Run for 2 seconds
 	time.Sleep(2 * time.Second)
@@ -649,17 +640,213 @@ func TestBinHeap_LargeScaleOrdering(t *testing.T) {
 	const n = 10_000
 	bh := NewBinHeap[Item](uint64(n) + 1)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		bh.Insert(NewTest(rand.Int63n(1000), "g", fmt.Sprintf("item-%d", i))) //nolint:gosec
 	}
 
 	var prev int64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		item := bh.ExtractMin()
 		require.GreaterOrEqual(t, item.Priority(), prev,
 			"item %d: priority %d should be >= previous %d", i, item.Priority(), prev)
 		prev = item.Priority()
 	}
+}
+
+// TestBinHeap_BroadcastPreventsDeadlock.
+//
+// With Signal(), the following deadlock is possible (maxLen=1):
+//  1. Queue has 1 item. P1, P2 call Insert → both Wait() (queue full).
+//  2. C1 calls ExtractMin → extracts the item, Signal() wakes P1.
+//  3. C2 calls ExtractMin → acquires lock before P1, sees empty → Wait().
+//  4. P1 wakes, inserts item, Signal() → wakes P2 (wrong type!), not C2.
+//  5. P2 rechecks: queue full → Wait().
+//  6. Deadlock: P2 and C2 both waiting, queue has 1 item, no wakeup coming.
+//
+// With Broadcast(), step 4 wakes both P2 and C2, so C2 rechecks, finds 1 item,
+// and successfully extracts — no deadlock.
+func TestBinHeap_BroadcastPreventsDeadlock(t *testing.T) {
+	t.Run("maxLen=1 tight contention", func(t *testing.T) {
+		const numProducers = 4
+		const numConsumers = 4
+		const itemsPerProducer = 500
+
+		bh := NewBinHeap[Item](1)
+
+		var producerWg sync.WaitGroup
+		var consumerWg sync.WaitGroup
+		var consumed atomic.Int64
+
+		totalItems := int64(numProducers * itemsPerProducer)
+
+		// Launch producers: each inserts itemsPerProducer items then exits.
+		for p := range numProducers {
+			producerWg.Go(func() {
+				for i := range itemsPerProducer {
+					bh.Insert(NewTest(int64(i), fmt.Sprintf("p%d", p), fmt.Sprintf("p%d-i%d", p, i)))
+				}
+			})
+		}
+
+		// Launch consumers: each extracts until totalItems have been consumed.
+		for range numConsumers {
+			consumerWg.Go(func() {
+				for consumed.Add(1) <= totalItems {
+					_ = bh.ExtractMin()
+				}
+			})
+		}
+
+		// Watchdog: if the test doesn't finish within the timeout, it's a deadlock.
+		done := make(chan struct{})
+		go func() {
+			producerWg.Wait()
+			consumerWg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// success — no deadlock
+		case <-time.After(10 * time.Second):
+			t.Fatal("DEADLOCK: producers and consumers did not complete within 10s (missed wakeup)")
+		}
+	})
+
+	t.Run("maxLen=2 multiple rounds", func(t *testing.T) {
+		// A slightly larger capacity still triggers the bug with Signal()
+		// because producers and consumers can both be queued on the same cond.
+		const numProducers = 6
+		const numConsumers = 6
+		const itemsPerProducer = 300
+
+		bh := NewBinHeap[Item](2)
+
+		var producerWg sync.WaitGroup
+		var consumerWg sync.WaitGroup
+		var consumed atomic.Int64
+
+		totalItems := int64(numProducers * itemsPerProducer)
+
+		for p := range numProducers {
+			producerWg.Go(func() {
+				for i := range itemsPerProducer {
+					bh.Insert(NewTest(int64(i%50), fmt.Sprintf("p%d", p), fmt.Sprintf("p%d-i%d", p, i)))
+				}
+			})
+		}
+
+		for range numConsumers {
+			consumerWg.Go(func() {
+				for consumed.Add(1) <= totalItems {
+					_ = bh.ExtractMin()
+				}
+			})
+		}
+
+		done := make(chan struct{})
+		go func() {
+			producerWg.Wait()
+			consumerWg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// success
+		case <-time.After(10 * time.Second):
+			t.Fatal("DEADLOCK: producers and consumers did not complete within 10s (missed wakeup)")
+		}
+	})
+
+	t.Run("asymmetric producers/consumers", func(t *testing.T) {
+		// Many producers, few consumers — maximizes the chance that Signal()
+		// wakes a producer instead of the sole consumer.
+		const numProducers = 8
+		const numConsumers = 1
+		const itemsPerProducer = 200
+
+		bh := NewBinHeap[Item](1)
+
+		var producerWg sync.WaitGroup
+		var consumerWg sync.WaitGroup
+		var consumed atomic.Int64
+
+		totalItems := int64(numProducers * itemsPerProducer)
+
+		for p := range numProducers {
+			producerWg.Go(func() {
+				for i := range itemsPerProducer {
+					bh.Insert(NewTest(int64(i), fmt.Sprintf("p%d", p), fmt.Sprintf("p%d-i%d", p, i)))
+				}
+			})
+		}
+
+		for range numConsumers {
+			consumerWg.Go(func() {
+				for consumed.Add(1) <= totalItems {
+					_ = bh.ExtractMin()
+				}
+			})
+		}
+
+		done := make(chan struct{})
+		go func() {
+			producerWg.Wait()
+			consumerWg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// success
+		case <-time.After(10 * time.Second):
+			t.Fatal("DEADLOCK: producers and consumers did not complete within 10s (missed wakeup)")
+		}
+	})
+
+	t.Run("repeated stress cycles", func(t *testing.T) {
+		// Run multiple short cycles to increase the probability of hitting
+		// the specific interleaving that causes a missed wakeup.
+		for cycle := range 20 {
+			bh := NewBinHeap[Item](1)
+			const numGoroutines = 4
+			const itemsEach = 100
+
+			var wg sync.WaitGroup
+			var consumed atomic.Int64
+			totalItems := int64(numGoroutines * itemsEach)
+
+			for g := range numGoroutines {
+				wg.Go(func() {
+					for i := range itemsEach {
+						bh.Insert(NewTest(int64(i), "g", fmt.Sprintf("c%d-g%d-i%d", cycle, g, i)))
+					}
+				})
+			}
+
+			for range numGoroutines {
+				wg.Go(func() {
+					for consumed.Add(1) <= totalItems {
+						_ = bh.ExtractMin()
+					}
+				})
+			}
+
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				// cycle passed
+			case <-time.After(5 * time.Second):
+				t.Fatalf("DEADLOCK on cycle %d: did not complete within 5s", cycle)
+			}
+		}
+	})
 }
 
 func BenchmarkInsert(b *testing.B) {
@@ -679,7 +866,7 @@ func BenchmarkExtractMin(b *testing.B) {
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		bh.ExtractMin()
 	}
 }
@@ -687,7 +874,7 @@ func BenchmarkExtractMin(b *testing.B) {
 func BenchmarkInsertExtractMin(b *testing.B) {
 	bh := NewBinHeap[Item](2000)
 	// Pre-fill with 1000 items
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		bh.Insert(NewTest(rand.Int63n(100000), "bench", fmt.Sprintf("pre-%d", i))) //nolint:gosec
 	}
 	b.ReportAllocs()
@@ -707,9 +894,9 @@ func BenchmarkRemove(b *testing.B) {
 
 	// Fill with 1000 items across 100 groups (10 items each)
 	groups := make([][]Item, numGroups)
-	for g := 0; g < numGroups; g++ {
+	for g := range numGroups {
 		groups[g] = make([]Item, 0, itemsPerGroup)
-		for i := 0; i < itemsPerGroup; i++ {
+		for i := range itemsPerGroup {
 			item := NewTest(rand.Int63n(10000), fmt.Sprintf("g%d", g), fmt.Sprintf("g%d-i%d", g, i)) //nolint:gosec
 			bh.Insert(item)
 			groups[g] = append(groups[g], item)
@@ -718,7 +905,8 @@ func BenchmarkRemove(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	i := 0
+	for b.Loop() {
 		groupIdx := i % numGroups
 		groupID := fmt.Sprintf("g%d", groupIdx)
 		bh.Remove(groupID)
@@ -728,13 +916,14 @@ func BenchmarkRemove(b *testing.B) {
 			bh.Insert(item)
 		}
 		b.StartTimer()
+		i++
 	}
 }
 
 func BenchmarkConcurrentInsertExtract(b *testing.B) {
 	bh := NewBinHeap[Item](10000)
 	// Pre-fill so ExtractMin rarely blocks
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		bh.Insert(NewTest(rand.Int63n(10000), "bench", fmt.Sprintf("pre-%d", i))) //nolint:gosec
 	}
 	b.ReportAllocs()

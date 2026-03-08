@@ -157,7 +157,7 @@ func (bh *BinHeap[T]) Insert(item T) {
 	bh.exists[item.ID()] = struct{}{}
 
 	// signal the goroutine on wait
-	bh.cond.Signal()
+	bh.cond.Broadcast()
 	bh.cond.L.Unlock()
 }
 
@@ -180,7 +180,7 @@ func (bh *BinHeap[T]) ExtractMin() T {
 	delete(bh.exists, item.ID())
 
 	// signal blocked producers waiting for space
-	bh.cond.Signal()
+	bh.cond.Broadcast()
 	bh.cond.L.Unlock()
 	return item
 }
