@@ -539,6 +539,42 @@ func TestBinHeap_BoundedInsertBackpressure(t *testing.T) {
 	require.Equal(t, uint64(5), bh.Len(), "should be 5: was 5, extracted 1, inserted 1")
 }
 
+func TestBinHeap_RemoveUnblocksInsert(t *testing.T) {
+	bh := NewBinHeap[Item](5)
+
+	// Fill to capacity with one removable group
+	for i := 0; i < 5; i++ {
+		bh.Insert(NewTest(int64(i+1), "removeMe", fmt.Sprintf("item-%d", i)))
+	}
+	require.Equal(t, uint64(5), bh.Len())
+
+	// Launch goroutine to insert one more (should block at capacity)
+	inserted := make(chan struct{})
+	go func() {
+		bh.Insert(NewTest(99, "keep", "new-item"))
+		close(inserted)
+	}()
+
+	// Give goroutine time to start and block
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, uint64(5), bh.Len(), "producer should be blocked, heap still at capacity")
+
+	// Remove group to free space — this should unblock the producer
+	removed := bh.Remove("removeMe")
+	require.Len(t, removed, 5)
+
+	select {
+	case <-inserted:
+		// success — producer unblocked by Remove
+	case <-time.After(2 * time.Second):
+		t.Fatal("insert goroutine did not unblock after Remove freed space")
+	}
+
+	require.Equal(t, uint64(1), bh.Len())
+	item := bh.ExtractMin()
+	require.Equal(t, int64(99), item.Priority())
+}
+
 func TestBinHeap_ConcurrentInsertRemoveExtract(t *testing.T) {
 	// Large capacity to avoid Insert back-pressure during stress test;
 	// back-pressure is tested separately in TestBinHeap_BoundedInsertBackpressure.

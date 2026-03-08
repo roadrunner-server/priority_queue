@@ -118,6 +118,7 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 	}
 
 	bh.st.clear()
+	bh.cond.Broadcast()
 
 	return out
 }
