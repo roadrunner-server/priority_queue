@@ -34,7 +34,7 @@ jobs:
       - name: Run golang tests with coverage
         run: |
           mkdir ./coverage
-          go test -v -race -cover -coverpkg=./... -coverprofile=./coverage/pq-${{ matrix.os }}.out -covermode=atomic ./...
+          go test -v -race -cover -tags=debug -coverpkg=./... -coverprofile=./coverage/pq-${{ matrix.os }}.out -covermode=atomic ./...
 
       - name: Archive code coverage results
         uses: actions/upload-artifact@v6
@@ -50,17 +50,23 @@ jobs:
 
     timeout-minutes: 60
     steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
       - name: Download code coverage results
         uses: actions/download-artifact@v7
-      - run: |
-          cd pq-ubuntu-latest
-          echo 'mode: atomic' > summary.txt
-          tail -q -n +2 *.out >> summary.txt
-          sed -i '2,${/roadrunner/!d}' summary.txt
+        with:
+          name: pq-ubuntu-latest
+          path: ./coverage
 
-      - name: upload to codecov
+      - name: Prepare coverage report
+        run: |
+          cd ./coverage
+          echo 'mode: atomic' > summary.txt
+          tail -q -n +2 *.out | awk '/github\.com\/roadrunner-server\/priority_queue/' >> summary.txt
+
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5 # Docs: <https://github.com/codecov/codecov-action>
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/summary.txt
           fail_ci_if_error: false
