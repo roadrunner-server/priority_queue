@@ -349,7 +349,7 @@ func TestBinHeap_Remove(t *testing.T) {
 
 	out := bh.Remove("1")
 	if len(out) != 6 {
-		t.Fatal("should be 5")
+		t.Fatalf("expected 6, got %d", len(out))
 	}
 
 	for i := range out {
