@@ -2,7 +2,6 @@ package priorityqueue
 
 import (
 	"sync"
-	"sync/atomic"
 )
 
 // Item represents a binary heap item
@@ -21,7 +20,6 @@ type BinHeap[T Item] struct {
 	exists map[string]struct{}
 	st     *stack
 	// find a way to use a pointer to the raw data
-	len    uint64
 	maxLen uint64
 	cond   sync.Cond
 }
@@ -31,14 +29,13 @@ func NewBinHeap[T Item](maxLen uint64) *BinHeap[T] {
 		items:  make([]T, 0, 1000),
 		exists: make(map[string]struct{}, 1000),
 		st:     newStack(),
-		len:    0,
 		maxLen: maxLen,
 		cond:   sync.Cond{L: &sync.Mutex{}},
 	}
 }
 
 func (bh *BinHeap[T]) fixUp() {
-	k := bh.len - 1
+	k := uint64(len(bh.items)) - 1
 	p := (k - 1) >> 1 // k-1 / 2
 
 	for k > 0 {
@@ -84,11 +81,8 @@ func (bh *BinHeap[T]) Exists(id string) bool {
 	bh.cond.L.Lock()
 	defer bh.cond.L.Unlock()
 
-	if _, ok := bh.exists[id]; ok {
-		return true
-	}
-
-	return false
+	_, ok := bh.exists[id]
+	return ok
 }
 
 // Remove removes all elements with the provided ID and returns the slice with them
@@ -107,18 +101,29 @@ func (bh *BinHeap[T]) Remove(groupID string) []T {
 		}
 	}
 
+	oldLen := len(bh.items)
+
 	ids := bh.st.Indices()
-	adjusment := 0
+	adjustment := 0
 	for i := range ids {
-		start := ids[i][0] - adjusment
-		end := ids[i][1] - adjusment
+		start := ids[i][0] - adjustment
+		end := ids[i][1] - adjustment
 
 		bh.items = append(bh.items[:start], bh.items[end+1:]...)
-		adjusment += end - start + 1
+		adjustment += end - start + 1
 	}
 
-	atomic.StoreUint64(&bh.len, uint64(len(bh.items)))
+	// Zero freed tail slots to allow GC of removed items
+	clear(bh.items[len(bh.items):oldLen])
+
+	// re-heapify after compaction (Floyd's algorithm)
+	n := len(bh.items)
+	for i := n/2 - 1; i >= 0; i-- {
+		bh.fixDown(i, n-1)
+	}
+
 	bh.st.clear()
+	bh.cond.Broadcast()
 
 	return out
 }
@@ -128,7 +133,7 @@ func (bh *BinHeap[T]) PeekPriority() int64 {
 	bh.cond.L.Lock()
 	defer bh.cond.L.Unlock()
 
-	if bh.Len() > 0 {
+	if len(bh.items) > 0 {
 		return bh.items[0].Priority()
 	}
 
@@ -136,30 +141,19 @@ func (bh *BinHeap[T]) PeekPriority() int64 {
 }
 
 func (bh *BinHeap[T]) Len() uint64 {
-	return atomic.LoadUint64(&bh.len)
+	bh.cond.L.Lock()
+	defer bh.cond.L.Unlock()
+	return uint64(len(bh.items))
 }
 
 func (bh *BinHeap[T]) Insert(item T) {
 	bh.cond.L.Lock()
 
-	// check the binary heap len before insertion
-	if bh.Len() > bh.maxLen {
-		// unlock the mutex to proceed to get-max
-		bh.cond.L.Unlock()
-
-		// signal waiting goroutines
-		for bh.Len() > 0 {
-			// signal waiting goroutines
-			bh.cond.Signal()
-		}
-		// lock mutex to proceed inserting into the empty slice
-		bh.cond.L.Lock()
+	for uint64(len(bh.items)) >= bh.maxLen {
+		bh.cond.Wait()
 	}
 
 	bh.items = append(bh.items, item)
-
-	// add len to the slice
-	atomic.AddUint64(&bh.len, 1)
 
 	// fix binary heap up
 	bh.fixUp()
@@ -167,32 +161,33 @@ func (bh *BinHeap[T]) Insert(item T) {
 	// add item
 	bh.exists[item.ID()] = struct{}{}
 
-	bh.cond.L.Unlock()
-
 	// signal the goroutine on wait
-	bh.cond.Signal()
+	bh.cond.Broadcast()
+	bh.cond.L.Unlock()
 }
 
 func (bh *BinHeap[T]) ExtractMin() T {
 	bh.cond.L.Lock()
 
 	// if len == 0, wait for the signal
-	for bh.Len() == 0 {
+	for len(bh.items) == 0 {
 		bh.cond.Wait()
 	}
 
-	bh.swap(0, bh.len-1)
+	n := uint64(len(bh.items))
+	bh.swap(0, n-1)
 
-	item := (bh.items)[int(bh.len)-1]        //nolint:gosec
-	bh.items = (bh).items[0 : int(bh.len)-1] //nolint:gosec
-	bh.fixDown(0, int(bh.len-2))             //nolint:gosec
-
-	// reduce len
-	atomic.AddUint64(&bh.len, ^uint64(0))
+	item := bh.items[n-1]
+	var zero T
+	bh.items[n-1] = zero
+	bh.items = bh.items[:n-1]
+	bh.fixDown(0, int(n)-2) //nolint:gosec
 
 	// remove item
 	delete(bh.exists, item.ID())
 
+	// signal blocked producers waiting for space
+	bh.cond.Broadcast()
 	bh.cond.L.Unlock()
 	return item
 }

@@ -45,5 +45,5 @@ func (st *stack) Indices() [][2]int {
 }
 
 func (st *stack) clear() {
-	st.idx = make([][2]int, 0, 10)
+	st.idx = st.idx[:0]
 }
