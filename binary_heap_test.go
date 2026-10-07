@@ -849,6 +849,80 @@ func TestBinHeap_BroadcastPreventsDeadlock(t *testing.T) {
 	})
 }
 
+func TestBinHeap_ExtractOrder(t *testing.T) {
+	// step inserts item, or calls ExtractMin when extract is true
+	type step struct {
+		item    Test
+		extract bool
+	}
+	ins := func(priority int64, groupID, id string) step {
+		return step{item: NewTest(priority, groupID, id)}
+	}
+	ext := step{extract: true}
+
+	tests := []struct {
+		name   string
+		maxLen uint64
+		steps  []step
+		// remove is the group to remove after the steps
+		remove string
+		want   []string
+	}{
+		{
+			name:   "equal priority, fill then drain",
+			maxLen: 10,
+			steps:  []step{ins(10, "g", "1"), ins(10, "g", "2"), ins(10, "g", "3"), ins(10, "g", "4")},
+			want:   []string{"1", "2", "3", "4"},
+		},
+		{
+			name:   "equal priority, full heap, one extract and one insert per round",
+			maxLen: 4,
+			steps: []step{
+				ins(10, "g", "1"), ins(10, "g", "2"), ins(10, "g", "3"), ins(10, "g", "4"),
+				ext, ins(10, "g", "5"),
+				ext, ins(10, "g", "6"),
+				ext, ins(10, "g", "7"),
+				ext, ins(10, "g", "8"),
+			},
+			want: []string{"1", "2", "3", "4", "5", "6", "7", "8"},
+		},
+		{
+			name:   "mixed priority, equal priorities keep insertion order",
+			maxLen: 10,
+			steps:  []step{ins(2, "g", "a"), ins(1, "g", "b"), ins(2, "g", "c"), ins(1, "g", "d")},
+			want:   []string{"b", "d", "a", "c"},
+		},
+		{
+			name:   "equal priority after Remove of another group",
+			maxLen: 10,
+			steps:  []step{ins(10, "g1", "a1"), ins(10, "g2", "b1"), ins(10, "g1", "a2"), ins(10, "g1", "a3"), ext},
+			remove: "g2",
+			want:   []string{"a1", "a2", "a3"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bh := NewBinHeap[Test](tc.maxLen)
+			got := make([]string, 0, len(tc.want))
+			for _, s := range tc.steps {
+				if s.extract {
+					got = append(got, bh.ExtractMin().ID())
+					continue
+				}
+				bh.Insert(s.item)
+			}
+			if tc.remove != "" {
+				bh.Remove(tc.remove)
+			}
+			for bh.Len() > 0 {
+				got = append(got, bh.ExtractMin().ID())
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func BenchmarkInsert(b *testing.B) {
 	bh := NewBinHeap[Item](1 << 30)
 	b.ReportAllocs()
