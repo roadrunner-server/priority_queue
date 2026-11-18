@@ -1,17 +1,53 @@
 package priorityqueue
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInsertContextFullHeap(t *testing.T) {
+	cases := []struct {
+		name   string
+		cancel bool
+	}{
+		{name: "cancel while full", cancel: true},
+		{name: "space becomes available"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				q := NewBinHeap[Test](1)
+				first, next := NewTest(1, "one", "first"), NewTest(2, "two", "next")
+				q.Insert(first)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				done := make(chan error, 1)
+				go func() { done <- q.InsertContext(ctx, next) }()
+				synctest.Wait()
+				if tc.cancel {
+					cancel()
+					require.ErrorIs(t, <-done, context.Canceled)
+					require.Equal(t, first, q.ExtractMin())
+				} else {
+					require.Equal(t, first, q.ExtractMin())
+					require.NoError(t, <-done)
+					require.Equal(t, next, q.ExtractMin())
+				}
+				require.Zero(t, q.Len())
+			})
+		})
+	}
+}
 
 type Test struct {
 	id       string

@@ -1,6 +1,7 @@
 package priorityqueue
 
 import (
+	"context"
 	"sync"
 )
 
@@ -159,11 +160,36 @@ func (bh *BinHeap[T]) Len() uint64 {
 
 func (bh *BinHeap[T]) Insert(item T) {
 	bh.cond.L.Lock()
-
 	for uint64(len(bh.items)) >= bh.maxLen {
 		bh.cond.Wait()
 	}
+	bh.insertLocked(item)
+	bh.cond.L.Unlock()
+}
 
+// InsertContext waits for space or returns the context error.
+func (bh *BinHeap[T]) InsertContext(ctx context.Context, item T) error {
+	bh.cond.L.Lock()
+	defer bh.cond.L.Unlock()
+	if uint64(len(bh.items)) >= bh.maxLen {
+		stop := context.AfterFunc(ctx, func() {
+			bh.cond.L.Lock()
+			bh.cond.Broadcast()
+			bh.cond.L.Unlock()
+		})
+		defer stop()
+		for uint64(len(bh.items)) >= bh.maxLen && ctx.Err() == nil {
+			bh.cond.Wait()
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	bh.insertLocked(item)
+	return nil
+}
+
+func (bh *BinHeap[T]) insertLocked(item T) {
 	bh.seq++
 	bh.items = append(bh.items, entry[T]{item: item, seq: bh.seq})
 
@@ -175,7 +201,6 @@ func (bh *BinHeap[T]) Insert(item T) {
 
 	// signal the goroutine on wait
 	bh.cond.Broadcast()
-	bh.cond.L.Unlock()
 }
 
 func (bh *BinHeap[T]) ExtractMin() T {
