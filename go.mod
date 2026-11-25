@@ -2,7 +2,7 @@ module github.com/roadrunner-server/priority_queue
 
 go 1.27
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/google/uuid v1.6.0
